@@ -228,6 +228,10 @@
 
   <div class="ctrl-block">
     <div class="slider-row">
+      <div class="slider-label"><span>🔆 畫面亮度 (曝光度)</span><span id="lbl-exp">75%</span></div>
+      <input type="range" id="slider-exp" min="40" max="130" step="5" value="75" oninput="onExposureSlider(this.value)" />
+    </div>
+    <div class="slider-row">
       <div class="slider-label"><span>🧱 牆體顯示高度</span><span id="lbl-wall-h">1.35 m</span></div>
       <input type="range" id="slider-wall-h" min="0.4" max="3.36" step="0.04" value="1.35" oninput="onWallSlider(this.value)" />
     </div>
@@ -402,12 +406,20 @@ function makeTileTexture(baseHex, groutHex, divs) {
 }
 
 let ambientLight, sunLight, hemiLight;
+const edgeLineMat = new THREE.LineBasicMaterial({ color: 0x1e293b, transparent: true, opacity: 0.55 });
+const furnEdgeMat = new THREE.LineBasicMaterial({ color: 0x0f172a, transparent: true, opacity: 0.42 });
+
+function attachEdges(mesh, isWall = false) {
+  const edges = new THREE.EdgesGeometry(mesh.geometry);
+  const line = new THREE.LineSegments(edges, isWall ? edgeLineMat : furnEdgeMat);
+  mesh.add(line);
+}
 
 function init() {
   const container = document.getElementById('canvas-container');
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0f172a);
-  scene.fog = new THREE.FogExp2(0x0f172a, 0.018);
+  scene.background = new THREE.Color(0x0b1120);
+  scene.fog = new THREE.FogExp2(0x0b1120, 0.015);
 
   camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.08, 80);
 
@@ -416,18 +428,20 @@ function init() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.75;
   container.appendChild(renderer.domElement);
 
-  // Lighting
-  hemiLight = new THREE.HemisphereLight(0xffffff, 0x334155, 0.68);
+  // Soft, Balanced Architectural Lighting (No Overexposure / Washout)
+  hemiLight = new THREE.HemisphereLight(0xf1f5f9, 0x1e293b, 0.42);
   hemiLight.position.set(5.5, 12, 4.5);
   scene.add(hemiLight);
 
-  ambientLight = new THREE.AmbientLight(0xfffbeb, 0.38);
+  ambientLight = new THREE.AmbientLight(0xf8fafc, 0.22);
   scene.add(ambientLight);
 
-  sunLight = new THREE.DirectionalLight(0xfff7ed, 0.85);
-  sunLight.position.set(14, 19, 12);
+  sunLight = new THREE.DirectionalLight(0xfffbeb, 0.52);
+  sunLight.position.set(12, 18, 11);
   sunLight.castShadow = true;
   sunLight.shadow.mapSize.width = 2048;
   sunLight.shadow.mapSize.height = 2048;
@@ -437,6 +451,7 @@ function init() {
   sunLight.shadow.camera.right = 14;
   sunLight.shadow.camera.top = 12;
   sunLight.shadow.camera.bottom = -12;
+  sunLight.shadow.bias = -0.0005;
   scene.add(sunLight);
 
   buildArchitecturalModel();
@@ -457,16 +472,26 @@ function init() {
   requestAnimationFrame(animate);
 }
 
-// Helper to add a box mesh
-function addBox(w, h, d, x, y, z, mat, castShadow = true, receiveShadow = true) {
+// Helper to add a box mesh with crisp architectural edge outlines
+function addBox(w, h, d, x, y, z, mat, castShadow = true, receiveShadow = true, withEdges = true) {
   const geo = new THREE.BoxGeometry(w, h, d);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.set(x, y, z);
   mesh.castShadow = castShadow;
   mesh.receiveShadow = receiveShadow;
+  if (withEdges && h > 0.05) attachEdges(mesh, false);
   scene.add(mesh);
   return mesh;
 }
+
+// Multi-material for walls: Dark Slate Top Cap (#1e293b / #334155) + Matte Warm Gray Sides
+const structWallSideMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.85 });
+const structWallTopMat  = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.90 });
+const partWallSideMat   = new THREE.MeshStandardMaterial({ color: 0xd6d3d1, roughness: 0.82 });
+const partWallTopMat    = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.90 });
+
+const structWallMats = [structWallSideMat, structWallSideMat, structWallTopMat, structWallTopMat, structWallSideMat, structWallSideMat];
+const partWallMats   = [partWallSideMat, partWallSideMat, partWallTopMat, partWallTopMat, partWallSideMat, partWallSideMat];
 
 // Helper to build an architectural wall segment from (x1, z1) to (x2, z2)
 function addWall(x1, z1, x2, z2, thickness = 0.15, mat = null, isStructural = false, hasDoor = false, doorOffset = 0.5, doorWidth = 0.90) {
@@ -475,9 +500,7 @@ function addWall(x1, z1, x2, z2, thickness = 0.15, mat = null, isStructural = fa
   const len = Math.sqrt(dx * dx + dz * dz);
   const angle = Math.atan2(dz, dx);
 
-  const wallMat = mat || (isStructural
-    ? new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.75 })
-    : new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.65 }));
+  const wallMat = mat || (isStructural ? structWallMats : partWallMats);
 
   if (!hasDoor || len <= doorWidth + 0.15) {
     const geo = new THREE.BoxGeometry(len, 1.0, thickness);
@@ -487,6 +510,7 @@ function addWall(x1, z1, x2, z2, thickness = 0.15, mat = null, isStructural = fa
     mesh.rotation.y = -angle;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+    attachEdges(mesh, true);
     scene.add(mesh);
     dynamicWalls.push({ mesh, baseY: 0, maxH: 3.36 });
 
@@ -511,6 +535,7 @@ function addWall(x1, z1, x2, z2, thickness = 0.15, mat = null, isStructural = fa
     m1.scale.y = wallHeight;
     m1.rotation.y = -angle;
     m1.castShadow = true; m1.receiveShadow = true;
+    attachEdges(m1, true);
     scene.add(m1);
     dynamicWalls.push({ mesh: m1, baseY: 0, maxH: 3.36 });
     wallColliders.push([
@@ -530,6 +555,7 @@ function addWall(x1, z1, x2, z2, thickness = 0.15, mat = null, isStructural = fa
     m2.scale.y = wallHeight;
     m2.rotation.y = -angle;
     m2.castShadow = true; m2.receiveShadow = true;
+    attachEdges(m2, true);
     scene.add(m2);
     dynamicWalls.push({ mesh: m2, baseY: 0, maxH: 3.36 });
     wallColliders.push([
@@ -544,11 +570,12 @@ function addWall(x1, z1, x2, z2, thickness = 0.15, mat = null, isStructural = fa
     const hingeZ = z1 + uz * seg1Len;
     const pivot = new THREE.Group();
     pivot.position.set(hingeX, 0, hingeZ);
-    const doorMat = new THREE.MeshStandardMaterial({ color: 0xb4845c, roughness: 0.55 });
+    const doorMat = new THREE.MeshStandardMaterial({ color: 0x9a6b43, roughness: 0.65 });
     const leaf = new THREE.Mesh(new THREE.BoxGeometry(doorWidth, 1.0, 0.045), doorMat);
     leaf.position.set(doorWidth / 2, Math.min(wallHeight, 2.2) / 2, 0);
     leaf.scale.y = Math.min(wallHeight, 2.2);
     leaf.castShadow = true;
+    attachEdges(leaf, false);
     pivot.add(leaf);
     const closedRot = -angle;
     const openRot = -angle + 1.35;
@@ -567,21 +594,23 @@ function addWindowWall(x1, z1, x2, z2, sillH = 0.65, thickness = 0.18) {
   const cx = (x1 + x2) / 2;
   const cz = (z1 + z2) / 2;
 
-  const sillMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.7 });
+  const sillMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.8 });
   const sill = new THREE.Mesh(new THREE.BoxGeometry(len, sillH, thickness), sillMat);
   sill.position.set(cx, sillH / 2, cz);
   sill.rotation.y = -angle;
   sill.castShadow = true; sill.receiveShadow = true;
+  attachEdges(sill, true);
   scene.add(sill);
 
   const glassMat = new THREE.MeshPhysicalMaterial({
-    color: 0x7dd3fc, transparent: true, opacity: 0.35, roughness: 0.1, metalness: 0.1
+    color: 0x38bdf8, transparent: true, opacity: 0.32, roughness: 0.15, metalness: 0.1
   });
   const glass = new THREE.Mesh(new THREE.BoxGeometry(len, 1.0, 0.04), glassMat);
   const gh = Math.max(0.1, wallHeight - sillH);
   glass.position.set(cx, sillH + gh / 2, cz);
   glass.scale.y = gh;
   glass.rotation.y = -angle;
+  attachEdges(glass, false);
   scene.add(glass);
   dynamicWalls.push({ mesh: glass, baseY: sillH, maxH: 3.36, isWindow: true, sillH });
 
@@ -595,31 +624,31 @@ function addWindowWall(x1, z1, x2, z2, sillH = 0.65, thickness = 0.18) {
 
 function buildArchitecturalModel() {
   // Base Ground Platform
-  const groundMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 });
-  addBox(18, 0.2, 16, 5.8, -0.12, 4.2, groundMat, false, true);
+  const groundMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.95 });
+  addBox(18, 0.2, 16, 5.8, -0.12, 4.2, groundMat, false, true, false);
 
-  // Flooring Materials
-  const woodWarmMat = new THREE.MeshStandardMaterial({ map: makeWoodTexture('#d6b48c', '#b89268'), roughness: 0.55 });
-  const woodBedroomMat = new THREE.MeshStandardMaterial({ map: makeWoodTexture('#caa478', '#ad875d'), roughness: 0.55 });
-  const foyerTileMat = new THREE.MeshStandardMaterial({ map: makeTileTexture('#64748b', '#475569', 6), roughness: 0.45 });
-  const kitchenTileMat = new THREE.MeshStandardMaterial({ map: makeTileTexture('#e2e8f0', '#cbd5e1', 8), roughness: 0.4 });
-  const bathTileMat = new THREE.MeshStandardMaterial({ map: makeTileTexture('#cbd5e1', '#94a3b8', 10), roughness: 0.35 });
-  const balconyTileMat = new THREE.MeshStandardMaterial({ map: makeTileTexture('#94a3b8', '#64748b', 8), roughness: 0.65 });
+  // Rich, High-Contrast Non-Glare Flooring Materials
+  const woodWarmMat = new THREE.MeshStandardMaterial({ map: makeWoodTexture('#b08458', '#7c5836'), roughness: 0.78 });
+  const woodBedroomMat = new THREE.MeshStandardMaterial({ map: makeWoodTexture('#9e7248', '#6e4c2c'), roughness: 0.78 });
+  const foyerTileMat = new THREE.MeshStandardMaterial({ map: makeTileTexture('#475569', '#1e293b', 6), roughness: 0.72 });
+  const kitchenTileMat = new THREE.MeshStandardMaterial({ map: makeTileTexture('#94a3b8', '#64748b', 8), roughness: 0.72 });
+  const bathTileMat = new THREE.MeshStandardMaterial({ map: makeTileTexture('#78909c', '#455a64', 10), roughness: 0.68 });
+  const balconyTileMat = new THREE.MeshStandardMaterial({ map: makeTileTexture('#64748b', '#334155', 8), roughness: 0.80 });
 
   // 1. Floor Zones (exact match to 1:50 blueprint)
-  addBox(3.60, 0.04, 1.25, 1.80, 0.02, -0.625, balconyTileMat, false, true); // Front Balcony 1.7坪
-  addBox(3.85, 0.04, 5.92, 1.925, 0.02, 2.96, woodWarmMat, false, true);     // Living + Grand Piano 8.0坪
-  addBox(1.65, 0.04, 1.78, 0.825, 0.02, 6.81, foyerTileMat, false, true);    // Foyer 落塵區 1.7坪
-  addBox(5.15, 0.04, 3.35, 4.225, 0.02, 6.025, kitchenTileMat, false, true); // Dining & Kitchen 7.5坪
-  addBox(2.95, 0.04, 1.55, 5.325, 0.02, 8.475, balconyTileMat, false, true); // Laundry Zone 2.1坪
-  addBox(2.60, 0.04, 4.15, 5.15, 0.02, 2.275, woodBedroomMat, false, true);  // Daughter's Room 4.8坪
-  addBox(0.75, 0.04, 1.20, 6.425, 0.02, 4.05, woodWarmMat, false, true);     // Storage Room
-  addBox(3.30, 0.04, 4.55, 8.10, 0.02, 2.275, woodBedroomMat, false, true);  // Master Room 6.3坪 + Study
-  addBox(2.40, 0.04, 3.10, 10.35, 0.02, 2.05, bathTileMat, false, true);     // Master Bathroom 1.3坪
-  addBox(2.75, 0.04, 2.20, 10.175, 0.02, 4.70, woodWarmMat, false, true);    // Multi-Functional Space 1.5坪
-  addBox(2.35, 0.04, 1.15, 7.625, 0.02, 5.125, woodWarmMat, false, true);    // Central Hallway
-  addBox(1.45, 0.04, 2.65, 7.525, 0.02, 6.925, bathTileMat, false, true);    // Public Bathroom 2.1坪
-  addBox(2.95, 0.04, 2.75, 9.725, 0.02, 7.175, woodBedroomMat, false, true); // Boy's Room 2.1坪
+  addBox(3.60, 0.04, 1.25, 1.80, 0.02, -0.625, balconyTileMat, false, true, false); // Front Balcony 1.7坪
+  addBox(3.85, 0.04, 5.92, 1.925, 0.02, 2.96, woodWarmMat, false, true, false);     // Living + Grand Piano 8.0坪
+  addBox(1.65, 0.04, 1.78, 0.825, 0.02, 6.81, foyerTileMat, false, true, false);    // Foyer 落塵區 1.7坪
+  addBox(5.15, 0.04, 3.35, 4.225, 0.02, 6.025, kitchenTileMat, false, true, false); // Dining & Kitchen 7.5坪
+  addBox(2.95, 0.04, 1.55, 5.325, 0.02, 8.475, balconyTileMat, false, true, false); // Laundry Zone 2.1坪
+  addBox(2.60, 0.04, 4.15, 5.15, 0.02, 2.275, woodBedroomMat, false, true, false);  // Daughter's Room 4.8坪
+  addBox(0.75, 0.04, 1.20, 6.425, 0.02, 4.05, woodWarmMat, false, true, false);     // Storage Room
+  addBox(3.30, 0.04, 4.55, 8.10, 0.02, 2.275, woodBedroomMat, false, true, false);  // Master Room 6.3坪 + Study
+  addBox(2.40, 0.04, 3.10, 10.35, 0.02, 2.05, bathTileMat, false, true, false);     // Master Bathroom 1.3坪
+  addBox(2.75, 0.04, 2.20, 10.175, 0.02, 4.70, woodWarmMat, false, true, false);    // Multi-Functional Space 1.5坪
+  addBox(2.35, 0.04, 1.15, 7.625, 0.02, 5.125, woodWarmMat, false, true, false);    // Central Hallway
+  addBox(1.45, 0.04, 2.65, 7.525, 0.02, 6.925, bathTileMat, false, true, false);    // Public Bathroom 2.1坪
+  addBox(2.95, 0.04, 2.75, 9.725, 0.02, 7.175, woodBedroomMat, false, true, false); // Boy's Room 2.1坪
 
   // 2. Perimeter & Interior Walls + Windows + Doors
   // Front Balcony Parapet & Glass Railing
@@ -684,22 +713,22 @@ function buildArchitecturalModel() {
   addWall(8.25, 8.55, 11.20, 8.55, 0.20, null, true);
 
   // ==========================================================================
-  // 3. Detailed 1:1 Scale Architectural Furniture & Appliances
+  // 3. Detailed 1:1 Scale Architectural Furniture & Appliances (High-Contrast Non-Glare Palette)
   // ==========================================================================
-  const sofaMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.5 });
-  const cushionMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.6 });
-  const darkWoodMat = new THREE.MeshStandardMaterial({ color: 0x451a03, roughness: 0.4 });
-  const lightWoodMat = new THREE.MeshStandardMaterial({ color: 0xd4a373, roughness: 0.5 });
-  const cabinetMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.45 });
-  const blackPianoMat = new THREE.MeshPhysicalMaterial({ color: 0x111827, roughness: 0.12, clearcoat: 1.0 });
-  const goldMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.7, roughness: 0.3 });
-  const marbleMat = new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.25 });
-  const darkMetalMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.6, roughness: 0.35 });
-  const beddingMasterMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.65 });
-  const beddingDaughterMat = new THREE.MeshStandardMaterial({ color: 0xf472b6, roughness: 0.65 });
-  const beddingBoyMat = new THREE.MeshStandardMaterial({ color: 0x0ea5e9, roughness: 0.65 });
-  const porcelainMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.15 });
-  const glassPartMat = new THREE.MeshPhysicalMaterial({ color: 0xbae6fd, transparent: true, opacity: 0.42, roughness: 0.15 });
+  const sofaMat = new THREE.MeshStandardMaterial({ color: 0xd6d3d1, roughness: 0.78 });
+  const cushionMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.75 });
+  const darkWoodMat = new THREE.MeshStandardMaterial({ color: 0x3b1f0e, roughness: 0.65 });
+  const lightWoodMat = new THREE.MeshStandardMaterial({ color: 0xb07d4f, roughness: 0.72 });
+  const cabinetMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.72 });
+  const blackPianoMat = new THREE.MeshPhysicalMaterial({ color: 0x0f172a, roughness: 0.22, clearcoat: 0.7 });
+  const goldMat = new THREE.MeshStandardMaterial({ color: 0xd97706, metalness: 0.55, roughness: 0.4 });
+  const marbleMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.55 });
+  const darkMetalMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.45, roughness: 0.5 });
+  const beddingMasterMat = new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness: 0.78 });
+  const beddingDaughterMat = new THREE.MeshStandardMaterial({ color: 0xdb2777, roughness: 0.78 });
+  const beddingBoyMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.78 });
+  const porcelainMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.45 });
+  const glassPartMat = new THREE.MeshPhysicalMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.36, roughness: 0.2 });
 
   // --- (A) LIVING ROOM: White Sofa (L230*D105), Coffee Table, TV Wall (D40), Grand Piano (183*150) ---
   // Area Rug under sofa
@@ -838,10 +867,12 @@ function buildArchitecturalModel() {
   addBox(0.70, 0.75, 1.60, 8.63, 0.41, 7.55, lightWoodMat);  // Desk L160*D70
   addBox(2.80, 1.15, 0.45, 9.72, 0.62, 8.28, lightWoodMat);  // South Wall Bookcase + Storage (W70+W90+W145)
 
-  // Warm Interior Point Lights for Each Major Zone (for Evening Mode & Walkthrough)
-  ROOMS.forEach(rm => {
-    const pt = new THREE.PointLight(0xffedd5, 0.42, 6.5);
-    pt.position.set(rm.x, 2.75, rm.z);
+  // Warm Interior Point Lights (Off during Daylight to prevent glare, On during Evening Mode)
+  [
+    [1.95, 2.50], [4.20, 6.10], [5.15, 2.20], [8.10, 2.20], [9.80, 6.80]
+  ].forEach(([lx, lz]) => {
+    const pt = new THREE.PointLight(0xffedd5, 0.0, 5.5);
+    pt.position.set(lx, 2.75, lz);
     scene.add(pt);
     ceilingLights.push(pt);
   });
@@ -980,23 +1011,31 @@ function toggleLabels() {
   document.getElementById('labels-layer').style.display = showLabels ? 'block' : 'none';
 }
 
+function onExposureSlider(val) {
+  const exp = parseFloat(val) / 100.0;
+  renderer.toneMappingExposure = exp;
+  document.getElementById('lbl-exp').textContent = val + '%';
+}
+
 function toggleLighting() {
   isNightMode = !isNightMode;
   const btn = document.getElementById('btn-light');
   if (isNightMode) {
     btn.textContent = '🌙 夜間暖光';
-    scene.background.setHex(0x090d16);
-    scene.fog.color.setHex(0x090d16);
-    hemiLight.intensity = 0.22;
-    sunLight.intensity = 0.18;
-    ceilingLights.forEach(l => { l.intensity = 0.92; });
+    scene.background.setHex(0x070b14);
+    scene.fog.color.setHex(0x070b14);
+    hemiLight.intensity = 0.20;
+    ambientLight.intensity = 0.14;
+    sunLight.intensity = 0.15;
+    ceilingLights.forEach(l => { l.intensity = 0.35; });
   } else {
     btn.textContent = '☀️ 日間採光';
-    scene.background.setHex(0x0f172a);
-    scene.fog.color.setHex(0x0f172a);
-    hemiLight.intensity = 0.68;
-    sunLight.intensity = 0.85;
-    ceilingLights.forEach(l => { l.intensity = 0.42; });
+    scene.background.setHex(0x0b1120);
+    scene.fog.color.setHex(0x0b1120);
+    hemiLight.intensity = 0.42;
+    ambientLight.intensity = 0.22;
+    sunLight.intensity = 0.52;
+    ceilingLights.forEach(l => { l.intensity = 0.0; });
   }
 }
 
