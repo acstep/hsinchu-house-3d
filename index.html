@@ -171,13 +171,22 @@
   }
 
   @media (max-width: 900px) {
-    .left-panel { width: 195px; top: 115px; }
-    .sidebar-toggle { display: inline-flex; top: 115px; }
-    .minimap-card { width: 155px; bottom: 118px; right: 10px; }
-    #minimap-canvas { height: 115px; }
-    .dpad-container { bottom: 10px; padding: 8px 12px; gap: 10px; }
-    .dpad-grid { grid-template-columns: repeat(3, 40px); grid-template-rows: repeat(2, 38px); }
-    .look-grid { grid-template-columns: repeat(2, 46px); grid-template-rows: repeat(2, 38px); }
+    .top-bar { top: 6px; left: 6px; right: 6px; padding: 8px 10px; gap: 6px; border-radius: 11px; }
+    .brand-title { font-size: 13.5px; }
+    .brand-sub { display: none; }
+    .brand-badge { font-size: 11px; padding: 4px 7px; }
+    .btn { padding: 5px 9px; font-size: 11.5px; border-radius: 7px; }
+    .left-panel { width: 200px; top: 96px; bottom: 110px; left: 6px; }
+    .minimap-card { width: 135px; bottom: 108px; right: 6px; padding: 6px; border-radius: 10px; }
+    .minimap-header { font-size: 10px; margin-bottom: 4px; }
+    #minimap-canvas { height: 95px; }
+    .pos-readout { font-size: 9.5px; margin-top: 4px; }
+    .dpad-container { bottom: 8px; padding: 6px 10px; gap: 8px; border-radius: 12px; width: calc(100vw - 16px); max-width: 390px; justify-content: center; }
+    .dpad-grid { grid-template-columns: repeat(3, 42px); grid-template-rows: repeat(2, 38px); gap: 5px; }
+    .look-grid { grid-template-columns: repeat(2, 48px); grid-template-rows: repeat(2, 38px); gap: 5px; }
+    .room-label-3d { font-size: 10px; padding: 2px 6px; }
+    .room-label-3d .sub { font-size: 8.5px; }
+    #toast-banner { top: 96px; width: 92vw; text-align: center; font-size: 11.5px; padding: 6px 12px; }
   }
 </style>
 </head>
@@ -435,6 +444,10 @@ function init() {
   setupControls();
   updateOrbitCamera();
 
+  if (window.innerWidth <= 900) {
+    document.getElementById('left-panel').classList.add('collapsed');
+  }
+
   window.addEventListener('resize', onWindowResize);
   setTimeout(() => {
     const tb = document.getElementById('toast-banner');
@@ -686,7 +699,7 @@ function buildArchitecturalModel() {
   const beddingDaughterMat = new THREE.MeshStandardMaterial({ color: 0xf472b6, roughness: 0.65 });
   const beddingBoyMat = new THREE.MeshStandardMaterial({ color: 0x0ea5e9, roughness: 0.65 });
   const porcelainMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.15 });
-  const glassPartMat = new THREE.MeshPhysicalMaterial({ color: 0bae6fd, transparent: true, opacity: 0.42, roughness: 0.15 });
+  const glassPartMat = new THREE.MeshPhysicalMaterial({ color: 0xbae6fd, transparent: true, opacity: 0.42, roughness: 0.15 });
 
   // --- (A) LIVING ROOM: White Sofa (L230*D105), Coffee Table, TV Wall (D40), Grand Piano (183*150) ---
   // Area Rug under sofa
@@ -878,6 +891,9 @@ function teleportToRoom(rm) {
       orbitState.spherical.phi = 0.78;
     }
     updateOrbitCamera();
+  }
+  if (window.innerWidth <= 900) {
+    document.getElementById('left-panel').classList.add('collapsed');
   }
 }
 
